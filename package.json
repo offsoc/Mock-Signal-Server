@@ -1,6 +1,6 @@
 {
   "name": "@signalapp/mock-server",
-  "version": "10.0.0",
+  "version": "10.4.1",
   "description": "Mock Signal Server for writing tests",
   "main": "src/index.js",
   "types": "src/index.d.ts",
@@ -9,7 +9,8 @@
     "src/**/*.d.ts",
     "protos/compiled.js",
     "protos/compiled.d.ts",
-    "certs"
+    "certs",
+    "updates-data"
   ],
   "scripts": {
     "watch": "npm run build:tsc -- -w",

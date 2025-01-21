@@ -85,10 +85,6 @@ export type CredentialsRange = Readonly<{
   to: number;
 }>;
 
-export type GroupCredentialsFlags = Readonly<{
-  zkc: boolean | undefined;
-}>;
-
 export type StorageCredentials = Readonly<{
   username: string;
   password: string;
@@ -125,11 +121,13 @@ export type RegisterDeviceOptions = Readonly<
         primary?: undefined;
         provisionId?: ProvisionIdString;
         number: string;
+        password: string;
       }
     | {
         primary: Device;
         provisionId?: undefined;
         number?: undefined;
+        password?: string;
       }
   ) & {
     registrationId: RegistrationId;
@@ -412,6 +410,7 @@ export abstract class Server {
     number: maybeNumber,
     registrationId,
     pniRegistrationId,
+    password,
   }: RegisterDeviceOptions): Promise<Device> {
     if (provisionId && !this.usedProvisionIds.has(provisionId)) {
       throw new Error('Use generateProvisionId() to create new provision id');
@@ -449,6 +448,11 @@ export abstract class Server {
       this.devicesByServiceId.set(aci, device);
       this.devicesByServiceId.set(pni, device);
     }
+
+    if (password) {
+      this.setDeviceAuthPassword(number, device, password);
+    }
+
     list.push(device);
 
     debug('registered device number=%j aci=%s pni=%s', number, aci, pni);
@@ -499,8 +503,23 @@ export abstract class Server {
       primary,
       registrationId,
       pniRegistrationId,
+      password,
     });
 
+    debug(
+      'provisioned device id=%j number=%j aci=%j',
+      device.deviceId,
+      number,
+      device.aci,
+    );
+    return device;
+  }
+
+  private setDeviceAuthPassword(
+    number: string,
+    device: Device,
+    password: string,
+  ) {
     const username = `${number}.${device.deviceId}`;
 
     // This is awkward, but WebSockets use it.
@@ -518,14 +537,6 @@ export abstract class Server {
     };
     this.devicesByAuth.set(username, authEntry);
     this.devicesByAuth.set(secondUsername, authEntry);
-
-    debug(
-      'provisioned device id=%j number=%j aci=%j',
-      device.deviceId,
-      number,
-      device.aci,
-    );
-    return device;
   }
 
   public async updateDeviceKeys(
@@ -1365,17 +1376,11 @@ export abstract class Server {
   public async getGroupCredentials(
     { aci, pni }: Device,
     range: CredentialsRange,
-    flags: GroupCredentialsFlags = { zkc: false },
   ): Promise<Credentials> {
     const auth = new ServerZkAuthOperations(this.zkSecret);
-    const { zkc } = flags;
-
-    const issueCredential = zkc
-      ? auth.issueAuthCredentialWithPniZkc.bind(auth)
-      : auth.issueAuthCredentialWithPniAsServiceId.bind(auth);
 
     return this.issueCredentials(range, (redemptionTime) => {
-      return issueCredential(
+      return auth.issueAuthCredentialWithPniZkc(
         Aci.parseFromServiceIdString(aci),
         Pni.parseFromServiceIdString(pni),
         redemptionTime,

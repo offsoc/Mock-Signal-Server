@@ -160,6 +160,7 @@ export class Connection extends Service {
                 value: '64',
                 enabled: true,
               },
+              { name: 'desktop.releaseNotes', enabled: true },
             ],
             serverEpochTime: Date.now() / 1000,
           },
@@ -527,7 +528,6 @@ export class Connection extends Service {
         const {
           redemptionStartSeconds: from,
           redemptionEndSeconds: to,
-          zkcCredential,
         } = query;
 
         return [
@@ -539,7 +539,6 @@ export class Connection extends Service {
                 from: parseInt(from as string, 10),
                 to: parseInt(to as string, 10),
               },
-              { zkc: zkcCredential === 'true' },
             ),
             callLinkAuthCredentials:
               await this.server.getCallLinkAuthCredentials(device, {
@@ -941,8 +940,11 @@ export class Connection extends Service {
     if (!url) {
       throw new Error('Request must have url');
     }
+    // Use a fixed string instead of constructing the URL from the HOST header
+    // since we don't actually care about anything but the path.
+    const path = new URL(url, 'http://localhost').pathname;
 
-    if (url.startsWith('/v1/websocket/provisioning')) {
+    if (path.startsWith('/v1/websocket/provisioning')) {
       const id = await this.server.generateProvisionId();
       try {
         await this.handleProvision(id);
@@ -953,8 +955,10 @@ export class Connection extends Service {
       return;
     }
 
-    if (url.startsWith('/v1/websocket/?')) {
+    if (path === '/v1/websocket/') {
       return await this.handleNormal(this.request);
+    } else {
+      debug('websocket connection has unexpected URL %s', url);
     }
   }
 
