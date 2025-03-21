@@ -71,7 +71,7 @@
     "@typescript-eslint/eslint-plugin": "^5.10.1",
     "@typescript-eslint/parser": "^5.10.1",
     "eslint": "^8.7.0",
-    "mocha": "^9.2.0",
+    "mocha": "^11.1.0",
     "protobufjs-cli": "^1.1.1",
     "typescript": "^5.1.0"
   }
