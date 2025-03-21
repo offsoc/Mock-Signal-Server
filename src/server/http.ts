@@ -14,12 +14,14 @@ import {
   del,
   get,
   head,
+  options,
   patch,
   post,
   put,
   router,
+  withNamespace,
 } from 'microrouter';
-import { type FileHandle, open, stat, readFile } from 'node:fs/promises';
+import { type FileHandle, open, readFile, stat } from 'node:fs/promises';
 import { pipeline } from 'node:stream/promises';
 import { Server as TusServer } from '@tus/server';
 import { FileStore } from '@tus/file-store';
@@ -41,6 +43,8 @@ import { createHash } from 'crypto';
 
 const debug = createDebug('mock:http');
 
+const ALL_METHODS = [get, post, put, patch, del, head, options] as const;
+
 const parsePassword = (req: ServerRequest): ParseAuthHeaderResult => {
   return parseAuthHeader(req.headers.authorization);
 };
@@ -50,6 +54,8 @@ function getContentType(filePath: string): string {
   switch (ext) {
     case 'json':
       return 'application/json';
+    case 'png':
+      return 'image/png';
     default:
       return 'application/octet-stream';
   }
@@ -57,7 +63,10 @@ function getContentType(filePath: string): string {
 
 export const createHandler = (
   server: Server,
-  { cdn3Path }: { cdn3Path: string | undefined },
+  {
+    cdn3Path,
+    updates2Path,
+  }: { cdn3Path: string | undefined; updates2Path: string | undefined },
 ): RequestHandler => {
   //
   // CDN
@@ -75,16 +84,19 @@ export const createHandler = (
   const getResourcesAttachment = get('/updates2/*', async (req, res) => {
     const thePath = req.params._;
 
+    assert(
+      updates2Path,
+      'updates2Path must be provided to retrieve from updates2',
+    );
+
     if (!thePath) {
       send(res, 400, { error: 'Missing path' });
       return;
     }
 
-    const updatesDir = join(__dirname, '..', '..', 'updates-data');
-
     let file: FileHandle | undefined;
     try {
-      file = await open(join(updatesDir, thePath), 'r');
+      file = await open(join(updates2Path, thePath), 'r');
 
       const { size, mtime } = await file.stat();
       const etag = `"${mtime.getTime().toString(16)}"`;
@@ -109,13 +121,17 @@ export const createHandler = (
   const headResourcesAttachment = head('/updates2/*', async (req, res) => {
     const thePath = req.params._;
 
+    assert(
+      updates2Path,
+      'updates2Path must be provided to retrieve from updates2',
+    );
+
     if (!thePath) {
       send(res, 400, { error: 'Missing path' });
       return;
     }
 
-    const updatesDir = join(__dirname, '..', '..', 'updates-data');
-    const filePath = join(updatesDir, thePath);
+    const filePath = join(updates2Path, thePath);
 
     try {
       const { size } = await stat(filePath);
@@ -772,18 +788,6 @@ export const createHandler = (
     );
   });
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const dummyAuth = (response: any): RouteHandler => {
-    return async (req, res) => {
-      const device = await auth(req, res);
-      if (!device) {
-        return;
-      }
-
-      return response;
-    };
-  };
-
   const notFoundAfterAuth: RouteHandler = async (req, res) => {
     const device = await auth(req, res);
     if (!device) {
@@ -795,28 +799,36 @@ export const createHandler = (
   };
 
   const routes = router(
-    // Sure, why not
-    get('/v1/config', dummyAuth({ config: [] })),
-
     getAttachment,
     getStickerPack,
     getSticker,
 
     // Technically these should live on a separate server, but who cares
-    getGroupV1,
-    getGroup,
-    getGroupVersion,
-    getGroupLogsV1,
-    getGroupLogs,
-    createGroupV1,
-    createGroup,
-    modifyGroupV1,
-    modifyGroup,
+    withNamespace('/storageService')(
+      // All storage service routes have the X-Signal-Timestamp header
+      ...ALL_METHODS.map((method) =>
+        method('/*', (req, res) => {
+          res.setHeader('X-Signal-Timestamp', Date.now());
+        }),
+      ),
+      getGroupV1,
+      getGroup,
+      getGroupVersion,
+      getGroupLogsV1,
+      getGroupLogs,
+      createGroupV1,
+      createGroup,
+      modifyGroupV1,
+      modifyGroup,
 
-    getStorageManifest,
-    getStorageManifestByVersion,
-    putStorage,
-    putStorageRead,
+      // TODO(indutny): support this
+      get('/v1/groups/token', notFound),
+
+      getStorageManifest,
+      getStorageManifestByVersion,
+      putStorage,
+      putStorageRead,
+    ),
 
     getCallLink,
     createOrUpdateCallLink,
@@ -832,13 +844,8 @@ export const createHandler = (
     getResourcesAttachment,
     headResourcesAttachment,
 
-    // TODO(indutny): support this
-    get('/v1/groups/token', notFound),
-
     get('/stickers/', notFound),
-    get('/*', notFoundAfterAuth),
-    put('/*', notFoundAfterAuth),
-    post('/*', notFoundAfterAuth),
+    ...ALL_METHODS.map((method) => method('/*', notFoundAfterAuth)),
   );
 
   return (req, res) => {

@@ -83,6 +83,7 @@ type StrictConfig = Readonly<{
   timeout: number;
   maxStorageReadKeys?: number;
   cdn3Path?: string;
+  updates2Path?: string;
 }>;
 
 export type Config = Readonly<{
@@ -92,6 +93,7 @@ export type Config = Readonly<{
   timeout?: number;
   maxStorageReadKeys?: number;
   cdn3Path?: string;
+  updates2Path?: string;
 }>;
 
 export type CreatePrimaryDeviceOptions = Readonly<{
@@ -162,6 +164,7 @@ export class Server extends BaseServer {
   >();
   private responseForChallenges: ChallengeResponse | undefined;
   private unregisteredServiceIds = new Set<ServiceIdString>();
+  private wsUpgradeResponseHeaders: Record<string, string> = {};
 
   constructor(config: Config = {}) {
     super();
@@ -217,6 +220,7 @@ export class Server extends BaseServer {
 
     const httpHandler = createHTTPHandler(this, {
       cdn3Path: this.config.cdn3Path,
+      updates2Path: this.config.updates2Path,
     });
 
     const server = https.createServer(this.config.https || {}, (req, res) => {
@@ -266,6 +270,14 @@ export class Server extends BaseServer {
         ws.close();
         debug('Websocket handling error', error.stack);
       });
+    });
+
+    wss.on('headers', (headers) => {
+      Object.entries(this.wsUpgradeResponseHeaders).forEach(
+        ([header, value]) => {
+          headers.push(`${header}: ${value}`);
+        },
+      );
     });
 
     this.https = server;
@@ -499,6 +511,12 @@ export class Server extends BaseServer {
       recursive: true,
     });
     await fsPromises.writeFile(path.join(dir, cdnKey), data);
+  }
+
+  public setWebsocketUpgradeResponseHeaders(
+    headers: Record<string, string>,
+  ): void {
+    this.wsUpgradeResponseHeaders = headers;
   }
 
   public async storeBackupOnCdn(
